@@ -3,22 +3,22 @@ package core.launcher.impl
 
 import java.util.Collections
 
+import kamon.Kamon
 import mesosphere.marathon.core.launcher.{ InstanceOp, TaskLauncher }
-import mesosphere.marathon.metrics.{ MetricPrefixes, Metrics }
+import mesosphere.marathon.metrics.ServiceMetric
 import mesosphere.marathon.stream._
 import org.apache.mesos.Protos.{ OfferID, Status }
 import org.apache.mesos.{ Protos, SchedulerDriver }
 import org.slf4j.LoggerFactory
 
 private[launcher] class TaskLauncherImpl(
-    metrics: Metrics,
     marathonSchedulerDriverHolder: MarathonSchedulerDriverHolder) extends TaskLauncher {
   private[this] val log = LoggerFactory.getLogger(getClass)
 
-  private[this] val usedOffersMeter = metrics.meter(metrics.name(MetricPrefixes.SERVICE, getClass, "usedOffers"))
-  private[this] val launchedTasksMeter = metrics.meter(metrics.name(MetricPrefixes.SERVICE, getClass, "launchedTasks"))
+  private[this] val usedOffersMeter = Kamon.metrics.minMaxCounter(metrics.name(ServiceMetric, getClass, "usedOffers"))
+  private[this] val launchedTasksMeter = Kamon.metrics.minMaxCounter(metrics.name(ServiceMetric, getClass, "launchedTasks"))
   private[this] val declinedOffersMeter =
-    metrics.meter(metrics.name(MetricPrefixes.SERVICE, getClass, "declinedOffers"))
+    Kamon.metrics.minMaxCounter(metrics.name(ServiceMetric, getClass, "declinedOffers"))
 
   override def acceptOffer(offerID: OfferID, taskOps: Seq[InstanceOp]): Boolean = {
     val accepted = withDriver(s"launchTasks($offerID)") { driver =>
@@ -33,13 +33,13 @@ private[launcher] class TaskLauncherImpl(
       driver.acceptOffers(Collections.singleton(offerID), operations, noFilter)
     }
     if (accepted) {
-      usedOffersMeter.mark()
+      usedOffersMeter.increment()
       val launchCount = taskOps.count {
         case _: InstanceOp.LaunchTask => true
         case _: InstanceOp.LaunchTaskGroup => true
         case _ => false
       }
-      launchedTasksMeter.mark(launchCount)
+      launchedTasksMeter.increment(launchCount.toLong)
     }
     accepted
   }
@@ -52,7 +52,7 @@ private[launcher] class TaskLauncherImpl(
       _.declineOffer(offerID, filters)
     }
     if (declined) {
-      declinedOffersMeter.mark()
+      declinedOffersMeter.increment()
     }
   }
 
